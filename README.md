@@ -17,6 +17,8 @@ ATM theft, robberies, and vandalism are rising. Traditional CCTV is **passive**�
 ## 💡 **The Solution: ARGUS**
 **ARGUS** (Automated Real-time Guard & Unlocking System) is an intelligent defense layer for ATMs. It uses multi-model Computer Vision to detect threats in real-time (`Masks`, `Helmets`, `Weapons`, `Crowds`) and takes immediate physical action: **Locking the Door** and **Sounding the Siren**.
 
+![ARGUS System in Action](assets/demo.jpg)
+
 ---
 
 ## 🌟 **Key Features**
@@ -95,6 +97,8 @@ We don't just use one model. We use an ensemble of specialized neural networks.
 - Connect **Arduino UNO** via USB.
 - Wire Pin 6 to Siren, Pin A5 to Relay (Lock).
 - Upload `Arduino/argus_lock.ino` via Arduino IDE.
+
+![Hardware Circuit Diagram](assets/circuit.jpg)
 
 ### 2. Backend
 ```bash
