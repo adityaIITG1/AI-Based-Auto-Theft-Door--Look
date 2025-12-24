@@ -61,6 +61,23 @@ graph TD
 
 ---
 
+## 🕵️ **Suspicious Activity Detection**
+
+ARGUS doesn't just detect objects—it understands **context** and **behavior patterns**. The system actively monitors for suspicious late-night activity, combining multiple threat indicators:
+
+![Suspicious Late Night Activity Detection](assets/suspicious_activity.png)
+
+**What ARGUS Detects:**
+- 🌙 **Late Night Access** (10 PM - 5 AM): Automatic heightened alert mode
+- 😷 **Face Concealment**: Masks, helmets, or caps hiding identity
+- 🔫 **Weapon Presence**: Guns, knives, or suspicious tools
+- 👥 **Crowd Anomalies**: Multiple people in restricted areas
+- ⏱️ **Loitering Behavior**: Extended presence without legitimate activity
+
+The system calculates a **real-time threat score** and triggers immediate actions when patterns indicate potential theft or vandalism.
+
+---
+
 ## 🤖 **AI Model Warehouse**
 We don't just use one model. We use an ensemble of specialized neural networks.
 
