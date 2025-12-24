@@ -76,6 +76,21 @@ ARGUS doesn't just detect objects—it understands **context** and **behavior pa
 
 The system calculates a **real-time threat score** and triggers immediate actions when patterns indicate potential theft or vandalism.
 
+### ✅ **Normal Activity Recognition**
+
+ARGUS is smart enough to distinguish between threats and legitimate access. When a person with a visible face and no suspicious indicators is detected, the system maintains a **LOW risk score** and keeps the door unlocked:
+
+![Normal Activity - Low Risk](assets/normal_activity.png)
+
+**Safe Indicators:**
+- ✅ **Face Visible**: Identity verification successful
+- ✅ **No Concealment**: No masks, helmets, or suspicious headwear
+- ✅ **Normal Hours**: Activity during regular business hours
+- ✅ **Single Person**: No crowd anomalies
+- ✅ **No Weapons**: Clean threat assessment
+
+This intelligent differentiation prevents false alarms while maintaining maximum security during actual threats.
+
 ---
 
 ## 🤖 **AI Model Warehouse**
