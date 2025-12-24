@@ -1,0 +1,7 @@
+Patched Load Failed: Error when deserializing class 'BatchNormalization' using config={'name': 'bn_Conv1', 'trainable': False, 'dtype': 'float32', 'momentum': 0.999, 'epsilon': 0.001, 'center': True, 'scale': True, 'beta_initializer': {'class_name': 'Zeros', 'config': {'dtype': 'float32'}}, 'gamma_initializer': {'class_name': 'Ones', 'config': {'dtype': 'float32'}}, 'moving_mean_initializer': {'class_name': 'Zeros', 'config': {'dtype': 'float32'}}, 'moving_variance_initializer': {'class_name': 'Ones', 'config': {'dtype': 'float32'}}, 'beta_regularizer': None, 'gamma_regularizer': None, 'beta_constraint': None, 'gamma_constraint': None, 'axis': 3}.
+
+Exception encountered: <class 'keras.src.initializers.constant_initializers.Ones'> could not be deserialized properly. Please ensure that components that are Python object instances (layers, models, etc.) returned by `get_config()` are explicitly deserialized in the model's `from_config()` method.
+
+config={'module': 'keras.initializers', 'class_name': 'Ones', 'config': {'dtype': 'float32'}, 'registered_name': None}.
+
+Exception encountered: Ones() takes no arguments

@@ -1,8 +1,0 @@
-fastapi
-uvicorn[standard]
-pydantic
-requests
-opencv-python
-numpy
-ultralytics
-huggingface_hub
