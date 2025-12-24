@@ -1,6 +1,15 @@
 {
-    "buildCommand": "cd argus-nextjs && npm install && npm run build",
-    "outputDirectory": "argus-nextjs/.next",
-    "framework": "nextjs",
-    "installCommand": "cd argus-nextjs && npm install"
+    "version": 2,
+    "builds": [
+        {
+            "src": "argus-nextjs/package.json",
+            "use": "@vercel/next"
+        }
+    ],
+    "routes": [
+        {
+            "src": "/(.*)",
+            "dest": "argus-nextjs/$1"
+        }
+    ]
 }
