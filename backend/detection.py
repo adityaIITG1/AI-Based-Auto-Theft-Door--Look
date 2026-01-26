@@ -70,8 +70,12 @@ class ArgusDetector:
         
         # 2. Load Helmet Model (Custom YOLO)
         try:
-            self.helmet_model = YOLO('backend/Bike-Helmet-Detction-Model/Weights/best.pt')
+            # FIX: Path relative to backend/
+            self.helmet_model = YOLO('Bike-Helmet-Detction-Model/Weights/best.pt')
             self.helmet_model_loaded = True
+            print("\n" + "="*50)
+            print(f" [SUCCESS] HELMET MODEL LOADED: Bike-Helmet-Detction-Model/Weights/best.pt")
+            print("="*50 + "\n")
             self.logger.info("Helmet Detection Model Loaded")
         except Exception as e:
             self.logger.error(f"Failed to load Helmet Model: {e}")
@@ -89,7 +93,7 @@ class ArgusDetector:
                 base_path = "backend/Face-Mask-Detection"
                 prototxtPath = os.path.join(base_path, "face_detector", "deploy.prototxt")
                 weightsPath = os.path.join(base_path, "face_detector", "res10_300x300_ssd_iter_140000.caffemodel")
-                maskModelPath = os.path.join(base_path, "mask_detector.model")
+                maskModelPath = os.path.join(base_path, "mask_detector.model.keras")
                 
                 # Load Face Net
                 self.face_net = cv2.dnn.readNet(prototxtPath, weightsPath)
@@ -97,9 +101,9 @@ class ArgusDetector:
                 
                 # Load Mask Model (Robust Patch for Keras 3)
                 import shutil
-                temp_h5_path = os.path.join(base_path, "mask_detector_fixed.h5")
-                if not os.path.exists(temp_h5_path):
-                    shutil.copyfile(maskModelPath, temp_h5_path)
+                temp_h5_path = os.path.join(base_path, "mask_detector_fixed.keras")
+                # ALWAYS Copy fresh model (overwrite temp) to pick up training changes
+                shutil.copyfile(maskModelPath, temp_h5_path)
                     
                 self.mask_model = load_model(temp_h5_path, custom_objects={
                     'GlorotUniform': PatchedGlorotUniform,
@@ -107,6 +111,9 @@ class ArgusDetector:
                     'Ones': PatchedOnes
                 })
                 self.mask_model_loaded = True
+                print("\n" + "="*50)
+                print(f" [SUCCESS] CUSTOM TRAINED MODEL LOADED: {temp_h5_path}")
+                print("="*50 + "\n")
                 self.logger.info("Face Mask Detection Model Loaded (Type: Keras 3 Patched)")
             except Exception as e:
                 self.logger.error(f"Failed to load Mask Models: {e}")
@@ -167,7 +174,7 @@ class ArgusDetector:
         RELEVANT_CLASSES = [
             self.CLASS_PERSON, 
             self.CLASS_BACKPACK, self.CLASS_HANDBAG, self.CLASS_SUITCASE, 
-            self.CLASS_KNIFE, self.CLASS_SCISSORS
+            self.CLASS_KNIFE
         ]
         
         for r in results:
@@ -248,8 +255,8 @@ class ArgusDetector:
             if confidence > 0.05:
                 print(f"DEBUG: Face Conf={confidence:.2f}")
             
-            # THRESHOLD RESTORED: Increased from 0.15 to 0.5 to prevent false positives (like piles of paper)
-            if confidence > 0.5:
+            # THRESHOLD RESTORED: Decreased to 0.15 for aggressive detection
+            if confidence > 0.15:
                 box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
                 (startX, startY, endX, endY) = box.astype("int")
                 (startX, startY) = (max(0, startX), max(0, startY))
@@ -303,8 +310,8 @@ class ArgusDetector:
             person_h = endY - startY
             if person_h < 50: return False # Too small
             
-            # Estimate Face Area (Top 25%)
-            face_endY = startY + int(person_h * 0.25)
+            # Estimate Face Area (Top 40%) - Increased again
+            face_endY = startY + int(person_h * 0.40)
             
             face_crop = frame[startY:face_endY, startX:endX]
             if face_crop.shape[0] < 10 or face_crop.shape[1] < 10: return False
@@ -321,8 +328,8 @@ class ArgusDetector:
             
             print(f"FALLBACK: {label} ({conf:.2f})")
             
-            # Lowered threshold for fallback safety
-            if label == "No Mask" and conf > 0.40: 
+            # Lowered threshold for fallback safety (0.25)
+            if label == "No Mask" and conf > 0.25: 
                 return True
         except Exception as e:
             print(f"FALLBACK ERROR: {e}")
@@ -405,7 +412,7 @@ class ArgusDetector:
                         current_frame_persons.append(box)
                     
                 # Category 1: Weapons
-                if source == 'coco' and cls in [self.CLASS_KNIFE, self.CLASS_SCISSORS]:
+                if source == 'coco' and cls == self.CLASS_KNIFE:
                     weapons_found.append(self.model.names[cls])
                 
                 # HELMET REAL
@@ -433,6 +440,9 @@ class ArgusDetector:
                       if self.check_face_fallback(frame, np.array(box)):
                            face_visible = True
                            break
+
+
+
 
             # CAT 1: WEAPON (High Severity)
             if weapons_found:
@@ -536,7 +546,7 @@ class ArgusDetector:
                 if cls in [self.CLASS_PERSON, self.CLASS_BACKPACK, self.CLASS_HANDBAG, self.CLASS_SUITCASE]:
                     should_draw = True
                     label_text = f"{self.model.names[cls]} {conf:.2f}"
-                elif cls in [self.CLASS_KNIFE, self.CLASS_SCISSORS]:
+                elif cls == self.CLASS_KNIFE:
                     should_draw = True
                     label_text = f"{self.model.names[cls]} {conf:.2f}"
                     color = (0, 0, 255) # Red for weapon

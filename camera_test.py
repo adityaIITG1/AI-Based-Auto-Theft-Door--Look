@@ -3,7 +3,7 @@ import time
 
 def test_camera(index):
     print(f"Testing camera index {index}...")
-    cap = cv2.VideoCapture(index)
+    cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
     if not cap.isOpened():
         print(f"[-] Camera {index} failed to open.")
         return False

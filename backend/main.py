@@ -48,7 +48,7 @@ global_capture = None
 @app.on_event("startup")
 async def startup_event():
     global global_capture
-    global_capture = cv2.VideoCapture(0)
+    global_capture = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     if not global_capture.isOpened():
         logger.error("Cannot open webcam")
 
