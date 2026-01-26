@@ -164,6 +164,10 @@ class ArgusDetector:
         self.last_decision = "NORMAL"
         self.last_reasons = []
         
+        # New Logic: Two Masked Persons Timer
+        self.two_masked_start_time = None
+
+        
     def detect_objects(self, frame):
         # 1. Main Object Detection (COCO)
         results = self.model(frame, verbose=False)
@@ -453,6 +457,23 @@ class ArgusDetector:
             if mask_detected:
                  threat_score += self.WEIGHTS['FACE_MASK']
                  active_threats.append(("FACE", "Face Mask Detected", self.WEIGHTS['FACE_MASK']))
+
+            # --- NEW LOGIC: 2+ MASKED PERSONS FOR > 1 MINUTE ---
+            # Count actual individual mask detections
+            mask_count = sum(1 for d in raw_detections if d['cls'] == 'MASK_REAL')
+            
+            if mask_count >= 2:
+                if self.two_masked_start_time is None:
+                    self.two_masked_start_time = current_time
+                else:
+                    elapsed = current_time - self.two_masked_start_time
+                    if elapsed > 60: # 1 Minute
+                        threat_score = 100 # IMMEDIATE MAX THREAT
+                        active_threats.append(("CRITICAL", "2+ Masked Persons Detected > 1min", 100))
+                        decision = "LOCK"
+            else:
+                self.two_masked_start_time = None
+
                     
             # CAT 3: HELMET (Real Model)
             if helmet_detected:
