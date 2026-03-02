@@ -144,7 +144,8 @@ class ArgusDetector:
         self.shrishti_model_loaded = False
         if TF_AVAILABLE:
             try:
-                shrishti_pb_path = r'backend/weapon-detection-shrishti/frozen_inference_graph.pb'
+                _base = os.path.dirname(os.path.abspath(__file__))
+                shrishti_pb_path = os.path.join(_base, 'weapon-detection-shrishti', 'frozen_inference_graph.pb')
                 if os.path.exists(shrishti_pb_path):
                     with tf_v1.gfile.GFile(shrishti_pb_path, "rb") as f:
                         graph_def = tf_v1.GraphDef()
@@ -282,9 +283,9 @@ class ArgusDetector:
                 boxes = r.boxes
                 for box in boxes:
                     cls = int(box.cls[0])
-                    # Classes: 0: 'gun', 1: 'guns', 2: 'handgun' - Assuming model mapping
                     conf = float(box.conf[0])
-                    if conf > 0.4: 
+                    print(f"DEBUG GUN_MODEL: cls={cls} conf={conf:.3f}")
+                    if conf > 0.25:  # Lowered threshold: was 0.4
                         xyxy = box.xyxy[0].tolist()
                         detections.append({'cls': 'GUN_REAL', 'conf': conf, 'bbox': xyxy, 'source': 'gun_model'})
 
@@ -483,20 +484,25 @@ class ArgusDetector:
                     
                     # WEAPONS
                     weapons = [d for d in raw_detections if d['cls'] == 'GUN_REAL' or d['cls'] == self.CLASS_KNIFE]
+                    print(f"DEBUG THREATS: weapons={len(weapons)} raw={[(d['cls'],round(d['conf'],2)) for d in raw_detections]}")
                     if weapons:
-                        score = self.WEIGHTS['WEAPON']
-                        threat_score += score
-                        active_threats.append(f"WEAPON: {weapons[0]['cls']} ({weapons[0]['conf']:.2f})")
+                        threat_score += self.WEIGHTS['WEAPON']
+                        active_threats.append(f"🔫 WEAPON DETECTED: {weapons[0]['source']} ({weapons[0]['conf']:.2f})")
                     
                     # CONCEALMENT (Masks/Helmets)
                     masks = [d for d in raw_detections if d['cls'] == 'MASK_REAL']
                     helmets = [d for d in raw_detections if d['cls'] == 'HELMET_REAL']
                     if masks:
                         threat_score += self.WEIGHTS['FACE_MASK']
-                        active_threats.append(f"FACE COVERED ({len(masks)})")
+                        active_threats.append(f"🎭 FACE COVERED ({len(masks)})")
                     if helmets:
                         threat_score += self.WEIGHTS['HELMET']
-                        active_threats.append("RIDER HELMET DETECTED")
+                        active_threats.append("⛑ RIDER HELMET DETECTED")
+                    
+                    # CRITICAL COMBO: Helmet + Weapon = instant 100
+                    if helmets and weapons:
+                        threat_score = 100
+                        active_threats.insert(0, "🚨 CRITICAL: ARMED + HELMET CONCEALMENT")
 
                     # CROWD / PROXIMITY
                     persons = [d['bbox'] for d in raw_detections if d['cls'] == self.CLASS_PERSON]
