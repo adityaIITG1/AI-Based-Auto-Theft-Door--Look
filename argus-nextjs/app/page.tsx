@@ -81,7 +81,19 @@ export default function Home() {
     const wsUrl = (path: string) => {
         const url = new URL(backendUrl);
         const proto = url.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${proto}//${url.host}${path}`;
+        // ngrok free plan: skip browser interstitial via query param
+        return `${proto}//${url.host}${path}?ngrok-skip-browser-warning=true`;
+    };
+
+    const apiFetch = (path: string, options: RequestInit = {}) => {
+        return fetch(`${backendUrl}${path}`, {
+            ...options,
+            headers: {
+                'ngrok-skip-browser-warning': 'true',
+                'Content-Type': 'application/json',
+                ...(options.headers || {}),
+            },
+        });
     };
 
     const severityFromScore = (score: number) => {
@@ -228,9 +240,8 @@ export default function Home() {
             sirenAudioRef.current.currentTime = 0;
             setSirenPlaying(false);
         }
-        fetch(`${backendUrl}/control/siren`, {
+        apiFetch('/control/siren', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ state: 'OFF' })
         }).catch(() => { });
     };
@@ -246,9 +257,8 @@ export default function Home() {
     const sirenOn = () => {
         setRemoteStatus("Siren Activated ✅");
         playSiren();
-        fetch(`${backendUrl}/control/siren`, {
+        apiFetch('/control/siren', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ state: 'ON' })
         }).catch(() => { });
     };
@@ -258,9 +268,8 @@ export default function Home() {
         setArduinoConnecting(true);
         setArduinoMessage("Connecting...");
         try {
-            const res = await fetch(`${backendUrl}/control/arduino/connect`, {
+            const res = await apiFetch('/control/arduino/connect', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ port: arduinoPortInput })
             });
             const data = await res.json();
@@ -278,7 +287,7 @@ export default function Home() {
 
     const checkArduinoStatus = async () => {
         try {
-            const res = await fetch(`${backendUrl}/control/arduino/status`);
+            const res = await apiFetch('/control/arduino/status');
             const data = await res.json();
             setHwConnected(data.connected);
             setHwPort(data.port);
