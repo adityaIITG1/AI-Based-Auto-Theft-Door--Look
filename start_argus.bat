@@ -9,8 +9,8 @@ start "ARGUS Backend" cmd /k "python main.py"
 cd ..
 
 echo Starting Permanent Tunnel at:
-echo https://argus-door-lock-backend.loca.lt
+echo https://argus-backend-aditya-007.loca.lt
 echo.
-npx -y localtunnel --port 8000 --subdomain argus-door-lock-backend
+npx -y localtunnel --port 8000 --subdomain argus-backend-aditya-007
 
 pause
