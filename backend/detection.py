@@ -182,7 +182,7 @@ class ArgusDetector:
         
         # Weights for Categories
         self.WEIGHTS = {
-            'WEAPON': 100,      # Category 1: Immediate Lock
+            'WEAPON': 30,       # Category 1: Gun alone = 30% (no auto-lock alone)
             'VIOLENCE': 90,     # Category 1: Physical assault proxy
             'TAMPER': 80,       # Category 2: ATM Tampering
             'FACE_MASK': 60,    # Category 3: Face Concealment (Medium-High)
