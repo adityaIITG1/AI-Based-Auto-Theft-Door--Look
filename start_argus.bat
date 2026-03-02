@@ -5,7 +5,7 @@ echo ==============================================
 echo.
 
 cd backend
-start "ARGUS Backend" cmd /k "python main.py"
+start "ARGUS Backend" cmd /k ""C:\Users\ASUS\anaconda3\Anaconda 2025\python.exe" main.py"
 cd ..
 
 echo Starting Permanent Tunnel at:
