@@ -76,15 +76,15 @@ class ArgusDetector:
         
         # 2. Load Helmet Model (Custom YOLO)
         try:
-            self.helmet_model = YOLO('Bike-Helmet-Detction-Model/Weights/best.pt')
+            self.helmet_model = YOLO('yolov8n-helmet-detection.pt')
             self.helmet_model_loaded = True
-            print("[SUCCESS] HELMET MODEL LOADED")
+            print("[SUCCESS] NEW HELMET MODEL LOADED")
         except Exception as e:
             # Try absolute or different relative if first fails
             try:
-                self.helmet_model = YOLO('backend/Bike-Helmet-Detction-Model/Weights/best.pt')
+                self.helmet_model = YOLO('backend/yolov8n-helmet-detection.pt')
                 self.helmet_model_loaded = True
-                print("[SUCCESS] HELMET MODEL LOADED (Alt Path)")
+                print("[SUCCESS] NEW HELMET MODEL LOADED (Alt Path)")
             except:
                 self.logger.error(f"Failed to load Helmet Model: {e}")
                 self.helmet_model_loaded = False
