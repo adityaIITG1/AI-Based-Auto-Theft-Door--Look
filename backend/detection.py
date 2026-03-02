@@ -253,6 +253,7 @@ class ArgusDetector:
             boxes = r.boxes
             for box in boxes:
                 cls = int(box.cls[0])
+                conf = float(box.conf[0])
                 
                 # STRICT FILTERING: Only allow relevant classes
                 if cls not in RELEVANT_CLASSES:
