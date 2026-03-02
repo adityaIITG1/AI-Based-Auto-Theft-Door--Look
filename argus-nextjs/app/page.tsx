@@ -81,8 +81,8 @@ export default function Home() {
     const wsUrl = (path: string) => {
         const url = new URL(backendUrl);
         const proto = url.protocol === 'https:' ? 'wss:' : 'ws:';
-        // ngrok free plan: skip browser interstitial via query param
-        return `${proto}//${url.host}${path}?ngrok-skip-browser-warning=true`;
+        // localtunnel bypass: skip browser interstitial via query param
+        return `${proto}//${url.host}${path}?Bypass-Tunnel-Reminder=true`;
     };
 
     const apiFetch = (path: string, options: RequestInit = {}) => {
@@ -90,6 +90,7 @@ export default function Home() {
             ...options,
             headers: {
                 'ngrok-skip-browser-warning': 'true',
+                'Bypass-Tunnel-Reminder': 'true',
                 'Content-Type': 'application/json',
                 ...(options.headers || {}),
             },
