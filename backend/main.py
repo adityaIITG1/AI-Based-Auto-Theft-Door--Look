@@ -6,6 +6,10 @@ import json
 import logging
 import time
 import threading
+import os
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+import pygame
+
 from detection import ArgusDetector
 from arduino_controller import ArduinoController
 
@@ -58,9 +62,21 @@ arduino = ArduinoController(port='COM9')
 # Try connecting to Arduino
 arduino_connected = arduino.connect()
 if arduino_connected:
-    logger.info(f"Successfully connected to Arduino on {arduino.port}")
+    logger.info("Hardware connected on startup.")
 else:
-    logger.warning("No Arduino found on COM9 or other ports. Running in simulation mode.")
+    logger.warning("Hardware NOT connected. Running in simulation mode.")
+
+# Audio Setup
+pygame.mixer.init()
+try:
+    # Use the absolute path provided by the user
+    siren_sound_path = r"C:\Users\ASUS\OneDrive\Desktop\Auto Theft Door Lock - ARGUS\civil-defense-siren-128262 copy.mp3"
+    siren_sound = pygame.mixer.Sound(siren_sound_path)
+    audio_loaded = True
+    logger.info(f"Loaded siren audio: {siren_sound_path}")
+except Exception as e:
+    audio_loaded = False
+    logger.error(f"Failed to load siren audio: {e}")
 
 # Global State
 system_state = {
@@ -97,6 +113,10 @@ async def control_siren(action: dict = Body(...)):
         system_state["snooze_until"] = time.time() + 30 # Snooze for 30 seconds
         logger.info("Siren manually silenced (Snoozed 30s)")
         
+        # Stop Software Audio
+        if audio_loaded:
+            siren_sound.stop()
+        
         # Hardware Silence
         if arduino and system_state["hardware_connected"]:
             arduino.silence_siren()
@@ -104,6 +124,11 @@ async def control_siren(action: dict = Body(...)):
     elif state == "ON":
         system_state["siren_active"] = True
         system_state["snooze_until"] = 0 # Cancel snooze
+        
+        # Play Software Audio
+        if audio_loaded and not pygame.mixer.get_busy():
+           siren_sound.play(loops=-1) # loop infinitely
+
         if arduino and system_state["hardware_connected"]:
             arduino.warning_siren()
 
@@ -179,9 +204,20 @@ async def video_endpoint(websocket: WebSocket):
             if decision == "LOCK":
                 system_state["lock_status"] = "LOCKED"
                 if arduino_connected: arduino.lock_door()
+                
+                # Audio Playback
+                if audio_loaded and not pygame.mixer.get_busy() and not system_state["siren_active"]:
+                    system_state["siren_active"] = True
+                    siren_sound.play(loops=-1) 
+                    logger.info("Software Siren started due to LOCK decision.")
+                    
             elif score < 20: 
-                # (Optional: Add auto-unlock logic if desired)
-                pass
+                # Unlock condition check - stop audio
+                if system_state["siren_active"]:
+                     system_state["siren_active"] = False
+                     if audio_loaded:
+                         siren_sound.stop()
+                     logger.info("Threat dropped. Software Siren stopped.")
 
             # Send Frame (Quality 50 for max speed)
             _, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
