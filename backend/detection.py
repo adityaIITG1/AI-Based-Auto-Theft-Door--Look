@@ -490,35 +490,23 @@ class ArgusDetector:
                         threat_score += self.WEIGHTS['WEAPON']
                         active_threats.append(f"🔫 WEAPON DETECTED: {weapons[0]['source']} ({weapons[0]['conf']:.2f})")
                     
-                    # CONCEALMENT (Masks/Helmets/Hidden Faces)
+                    # CONCEALMENT (Masks/Helmets)
                     masks = [d for d in raw_detections if d['cls'] == 'MASK_REAL']
                     helmets = [d for d in raw_detections if d['cls'] == 'HELMET_REAL']
-                    faces_detected = [d for d in raw_detections if d['cls'] in ['MASK_REAL', 'FACE_VISIBLE']]
-                    persons = [d['bbox'] for d in raw_detections if d['cls'] == self.CLASS_PERSON]
-                    
-                    hidden_face_threat = False
-                    
                     if masks:
                         threat_score += self.WEIGHTS['FACE_MASK']
                         active_threats.append(f"🎭 FACE COVERED ({len(masks)})")
-                        
                     if helmets:
                         threat_score += self.WEIGHTS['HELMET']
                         active_threats.append("⛑ RIDER HELMET DETECTED")
-                        hidden_face_threat = True
                     
-                    # User Feature: Person detected, but NO face at all (Helmet with visor, turned away, ski mask)
-                    if len(persons) > 0 and len(faces_detected) == 0:
-                        threat_score += 60  # Equivalent to a mask
-                        active_threats.append("⚠️ HIDDEN FACE (POTENTIAL HELMET)")
-                        hidden_face_threat = True
-                    
-                    # CRITICAL COMBO: Hidden Face/Helmet/Mask + Weapon = instant 100
-                    if (hidden_face_threat or masks) and weapons:
+                    # CRITICAL COMBO: Helmet + Weapon = instant 100
+                    if helmets and weapons:
                         threat_score = 100
-                        active_threats.insert(0, "🚨 CRITICAL: ARMED + HIDDEN FACE/HELMET")
+                        active_threats.insert(0, "🚨 CRITICAL: ARMED + HELMET CONCEALMENT")
 
                     # CROWD / PROXIMITY
+                    persons = [d['bbox'] for d in raw_detections if d['cls'] == self.CLASS_PERSON]
                     if len(persons) > 1:
                         threat_score += self.WEIGHTS['CROWD']
                         active_threats.append(f"MULTIPLE PEOPLE ({len(persons)})")
