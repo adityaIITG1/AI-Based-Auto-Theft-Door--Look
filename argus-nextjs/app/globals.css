@@ -274,6 +274,7 @@ body {
   background: rgba(0, 0, 0, 0.22);
   cursor: pointer;
   transition: 0.15s;
+  color: #ffffff;
 }
 
 .camBtn:hover {
@@ -291,11 +292,12 @@ body {
 .camTitle {
   font-weight: 800;
   font-size: 13px;
+  color: #ffffff;
 }
 
 .camSub {
   font-size: 11px;
-  opacity: 0.65;
+  color: rgba(255, 255, 255, 0.75);
   margin-top: 2px;
 }
 
