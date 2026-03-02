@@ -91,14 +91,14 @@ class ArgusDetector:
             
         # 3. Load Gun Model (Custom YOLOv8)
         try:
-            self.gun_model = YOLO('WraponDetectionYOLOv8/GunDetector.pt')
+            self.gun_model = YOLO('weapon-detection-yolov8.pt')
             self.gun_model_loaded = True
-            print("[SUCCESS] YOLOv8 GUN MODEL LOADED")
+            print("[SUCCESS] NEW YOLOv8 PISTOL/KNIFE MODEL LOADED")
         except Exception as e:
             try:
-                self.gun_model = YOLO('backend/WraponDetectionYOLOv8/GunDetector.pt')
+                self.gun_model = YOLO('backend/weapon-detection-yolov8.pt')
                 self.gun_model_loaded = True
-                print("[SUCCESS] YOLOv8 GUN MODEL LOADED (Alt Path)")
+                print("[SUCCESS] NEW YOLOv8 PISTOL/KNIFE MODEL LOADED (Alt Path)")
             except:
                 self.logger.error(f"Failed to load Gun Model: {e}")
                 self.gun_model_loaded = False
@@ -282,7 +282,7 @@ class ArgusDetector:
                             xyxy = box.xyxy[0].tolist()
                             detections.append({'cls': 'HELMET_REAL', 'conf': conf, 'bbox': xyxy, 'source': 'helmet_model'})
 
-        # 3. Gun Detection (Custom Model)
+        # 3. Gun/Knife Detection (Custom Model)
         if self.gun_model_loaded:
             gun_results = self.gun_model(frame, verbose=False)
             for r in gun_results:
@@ -290,10 +290,14 @@ class ArgusDetector:
                 for box in boxes:
                     cls = int(box.cls[0])
                     conf = float(box.conf[0])
-                    print(f"DEBUG GUN_MODEL: cls={cls} conf={conf:.3f}")
-                    if conf > 0.25:  # Lowered threshold: was 0.4
+                    
+                    if conf > 0.40:  # Threshold
                         xyxy = box.xyxy[0].tolist()
-                        detections.append({'cls': 'GUN_REAL', 'conf': conf, 'bbox': xyxy, 'source': 'gun_model'})
+                        # Class 0 = Pistol, Class 1 = Knife
+                        if cls == 0:
+                            detections.append({'cls': 'GUN_REAL', 'conf': conf, 'bbox': xyxy, 'source': 'gun_model_pistol'})
+                        elif cls == 1:
+                            detections.append({'cls': self.CLASS_KNIFE, 'conf': conf, 'bbox': xyxy, 'source': 'gun_model_knife'})
 
         # 4. Cap Detection (Custom Model)
         if self.cap_model_loaded:
