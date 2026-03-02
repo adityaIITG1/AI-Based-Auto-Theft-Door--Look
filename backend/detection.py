@@ -260,6 +260,11 @@ class ArgusDetector:
                     continue
                     
                 conf = float(box.conf[0])
+                
+                # Enforce high confidence for Person detection
+                if cls == self.CLASS_PERSON and conf < 0.80:
+                    continue
+                    
                 xyxy = box.xyxy[0].tolist()
                 detections.append({'cls': cls, 'conf': conf, 'bbox': xyxy, 'source': 'coco'})
         
