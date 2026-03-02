@@ -278,7 +278,7 @@ class ArgusDetector:
                     # Class 0 = With Helmet, Class 1 = Without Helmet
                     if cls == 0: # We only care about "With Helmet"
                         conf = float(box.conf[0])
-                        if conf > 0.4: # Threshold
+                        if conf >= 0.71: # Threshold increased to 0.71
                             xyxy = box.xyxy[0].tolist()
                             detections.append({'cls': 'HELMET_REAL', 'conf': conf, 'bbox': xyxy, 'source': 'helmet_model'})
 
