@@ -4,9 +4,12 @@ import winsound
 import logging
 import numpy as np
 import os
+import threading
+from queue import Queue
 from ultralytics import YOLO
 from datetime import datetime
 from collections import deque
+
 
 # Import TensorFlow for Mask Detection
 try:
@@ -34,6 +37,9 @@ else:
             super().__init__()
 
 print(f"DEBUG: TF_AVAILABLE = {TF_AVAILABLE}")
+
+if TF_AVAILABLE:
+    import tensorflow.compat.v1 as tf_v1
 
 class TrackedObject:
     """Simple tracker to monitor object duration and movement history"""
@@ -70,19 +76,33 @@ class ArgusDetector:
         
         # 2. Load Helmet Model (Custom YOLO)
         try:
-            # FIX: Path relative to backend/
             self.helmet_model = YOLO('Bike-Helmet-Detction-Model/Weights/best.pt')
             self.helmet_model_loaded = True
-            print("\n" + "="*50)
-            print(f" [SUCCESS] HELMET MODEL LOADED: Bike-Helmet-Detction-Model/Weights/best.pt")
-            print("="*50 + "\n")
-            self.logger.info("Helmet Detection Model Loaded")
+            print("[SUCCESS] HELMET MODEL LOADED")
         except Exception as e:
-            self.logger.error(f"Failed to load Helmet Model: {e}")
-            self.helmet_model_loaded = False
+            # Try absolute or different relative if first fails
+            try:
+                self.helmet_model = YOLO('backend/Bike-Helmet-Detction-Model/Weights/best.pt')
+                self.helmet_model_loaded = True
+                print("[SUCCESS] HELMET MODEL LOADED (Alt Path)")
+            except:
+                self.logger.error(f"Failed to load Helmet Model: {e}")
+                self.helmet_model_loaded = False
             
-        # Initialize other custom model flags to False by default
-        self.gun_model_loaded = False
+        # 3. Load Gun Model (Custom YOLOv8)
+        try:
+            self.gun_model = YOLO('WraponDetectionYOLOv8/GunDetector.pt')
+            self.gun_model_loaded = True
+            print("[SUCCESS] YOLOv8 GUN MODEL LOADED")
+        except Exception as e:
+            try:
+                self.gun_model = YOLO('backend/WraponDetectionYOLOv8/GunDetector.pt')
+                self.gun_model_loaded = True
+                print("[SUCCESS] YOLOv8 GUN MODEL LOADED (Alt Path)")
+            except:
+                self.logger.error(f"Failed to load Gun Model: {e}")
+                self.gun_model_loaded = False
+
         self.cap_model_loaded = False
 
         # 3. Load Mask Detector (TF + Caffe)
@@ -119,7 +139,42 @@ class ArgusDetector:
                 self.logger.error(f"Failed to load Mask Models: {e}")
                 import traceback
                 traceback.print_exc()
-        
+
+        # 4. Load Shrishti Weapon Detection Model (TF Frozen Graph)
+        self.shrishti_model_loaded = False
+        if TF_AVAILABLE:
+            try:
+                shrishti_pb_path = r'backend/weapon-detection-shrishti/frozen_inference_graph.pb'
+                if os.path.exists(shrishti_pb_path):
+                    with tf_v1.gfile.GFile(shrishti_pb_path, "rb") as f:
+                        graph_def = tf_v1.GraphDef()
+                        graph_def.ParseFromString(f.read())
+                    
+                    self.shrishti_graph = tf_v1.Graph()
+                    with self.shrishti_graph.as_default():
+                        tf_v1.import_graph_def(graph_def, name="")
+                    
+                    self.shrishti_sess = tf_v1.Session(graph=self.shrishti_graph)
+                    
+                    # Tensors
+                    self.shrishti_image_tensor = self.shrishti_graph.get_tensor_by_name('image_tensor:0')
+                    self.shrishti_boxes = self.shrishti_graph.get_tensor_by_name('detection_boxes:0')
+                    self.shrishti_scores = self.shrishti_graph.get_tensor_by_name('detection_scores:0')
+                    self.shrishti_classes = self.shrishti_graph.get_tensor_by_name('detection_classes:0')
+                    self.shrishti_num = self.shrishti_graph.get_tensor_by_name('num_detections:0')
+                    
+                    self.shrishti_model_loaded = True
+                    print("\n" + "="*50)
+                    print(f" [SUCCESS] SHRISHTI WEAPON MODEL LOADED")
+                    print("="*50 + "\n")
+                    self.logger.info("Shrishti Weapon Detection Model Loaded")
+                else:
+                    self.logger.error(f"Shrishti model not found at {shrishti_pb_path}")
+            except Exception as e:
+                self.logger.error(f"Failed to load Shrishti Model: {e}")
+
+        self.hand_landmarker_loaded = False
+
         # --- CONFIGURATION ---
         self.THREAT_THRESHOLD_LOCK = 70 
         self.THREAT_THRESHOLD_WARN = 40 
@@ -152,20 +207,32 @@ class ArgusDetector:
         self.tracked_objects = {}
         self.next_object_id = 0
         self.frame_count = 0
+        self.last_results = (None, 0, "NORMAL", [])
         self.loiter_threshold_seconds = 120 
         
         # Tamper Detection State
         self.prev_gray = None
-        
-        # Optimization: Frame Skipping (Increased to 5 for smoother video)
-        self.skip_interval = 5 
         self.last_raw_detections = []
         self.last_threat_score = 0
         self.last_decision = "NORMAL"
         self.last_reasons = []
-        
-        # New Logic: Two Masked Persons Timer
         self.two_masked_start_time = None
+
+        # --- MULTI-THREADING SETUP ---
+        self.input_frame = None
+        self.inference_lock = threading.Lock()
+        self.results_lock = threading.Lock()
+        
+        # Shared State (Protected by results_lock)
+        self.latest_raw_detections = []
+        self.latest_threat_score = 0
+        self.latest_decision = "NORMAL"
+        self.latest_reasons = []
+        
+        # Start Inference Thread
+        self.inference_thread = threading.Thread(target=self._inference_worker, daemon=True)
+        self.inference_thread.start()
+        print("[ArgusDetector] Async Inference Thread Started.")
 
         
     def detect_objects(self, frame):
@@ -234,6 +301,40 @@ class ArgusDetector:
                         if conf > 0.4:
                             xyxy = box.xyxy[0].tolist()
                             detections.append({'cls': 'CAP_REAL', 'conf': conf, 'bbox': xyxy, 'source': 'cap_model'})
+        
+        # 5. Shrishti Weapon Detection (TF)
+        if self.shrishti_model_loaded:
+            try:
+                # Preprocess for SSD Mobilenet (RGB + Expansion)
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img_expanded = np.expand_dims(rgb_frame, axis=0)
+                
+                (boxes, scores, classes, num) = self.shrishti_sess.run(
+                    [self.shrishti_boxes, self.shrishti_scores, self.shrishti_classes, self.shrishti_num],
+                    feed_dict={self.shrishti_image_tensor: img_expanded}
+                )
+                
+                boxes = np.squeeze(boxes)
+                scores = np.squeeze(scores)
+                classes = np.squeeze(classes).astype(np.int32)
+                
+                h, w = frame.shape[:2]
+                for i in range(int(num[0])):
+                    if scores[i] > 0.5: # Threshold for Shrishti Model
+                        # TF boxes are [ymin, xmin, ymax, xmax] normalized
+                        ymin, xmin, ymax, xmax = boxes[i]
+                        xyxy = [xmin * w, ymin * h, xmax * w, ymax * h]
+                        
+                        # Shrishti model class 1 is Gun (pistol)
+                        if classes[i] == 1:
+                            detections.append({
+                                'cls': 'GUN_REAL', 
+                                'conf': float(scores[i]), 
+                                'bbox': xyxy, 
+                                'source': 'shrishti_model'
+                            })
+            except Exception as e:
+                self.logger.error(f"Shrishti Inference Error: {e}")
         
         return detections
 
@@ -359,256 +460,122 @@ class ArgusDetector:
             
         return False, ""
 
+    def _inference_worker(self):
+        """Background thread for heavy AI inference"""
+        while True:
+            frame_to_process = None
+            with self.inference_lock:
+                if self.input_frame is not None:
+                    frame_to_process = self.input_frame.copy()
+                    self.input_frame = None 
+            
+            if frame_to_process is not None:
+                try:
+                    # 1. AI Ensemble
+                    raw_detections = self.detect_objects(frame_to_process)
+                    mask_detections = self.detect_masks(frame_to_process)
+                    raw_detections.extend(mask_detections)
+                    
+                    # 2. Full Threat Analysis
+                    threat_score = 0
+                    active_threats = []
+                    current_time = time.time()
+                    
+                    # WEAPONS
+                    weapons = [d for d in raw_detections if d['cls'] == 'GUN_REAL' or d['cls'] == self.CLASS_KNIFE]
+                    if weapons:
+                        score = self.WEIGHTS['WEAPON']
+                        threat_score += score
+                        active_threats.append(f"WEAPON: {weapons[0]['cls']} ({weapons[0]['conf']:.2f})")
+                    
+                    # CONCEALMENT (Masks/Helmets)
+                    masks = [d for d in raw_detections if d['cls'] == 'MASK_REAL']
+                    helmets = [d for d in raw_detections if d['cls'] == 'HELMET_REAL']
+                    if masks:
+                        threat_score += self.WEIGHTS['FACE_MASK']
+                        active_threats.append(f"FACE COVERED ({len(masks)})")
+                    if helmets:
+                        threat_score += self.WEIGHTS['HELMET']
+                        active_threats.append("RIDER HELMET DETECTED")
+
+                    # CROWD / PROXIMITY
+                    persons = [d['bbox'] for d in raw_detections if d['cls'] == self.CLASS_PERSON]
+                    if len(persons) > 1:
+                        threat_score += self.WEIGHTS['CROWD']
+                        active_threats.append(f"MULTIPLE PEOPLE ({len(persons)})")
+                        
+                    # 2+ Masks logic
+                    if len(masks) >= 2:
+                        if self.two_masked_start_time is None:
+                            self.two_masked_start_time = current_time
+                        elif current_time - self.two_masked_start_time > 60:
+                            threat_score = 100
+                            active_threats.append("CRITICAL: HIGH-RISK CONCEALMENT")
+                    else:
+                        self.two_masked_start_time = None
+
+                    # Final Aggregation
+                    threat_score = min(threat_score, 100)
+                    decision = "NORMAL"
+                    if threat_score >= self.THREAT_THRESHOLD_LOCK: decision = "LOCK"
+                    elif threat_score >= self.THREAT_THRESHOLD_WARN: decision = "WARN"
+
+                    # Update shared results
+                    with self.results_lock:
+                        self.latest_raw_detections = raw_detections
+                        self.latest_threat_score = threat_score
+                        self.latest_decision = decision
+                        self.latest_reasons = active_threats
+                        
+                except Exception as e:
+                    print(f"[ArgusDetector] Inference Thread Error: {e}")
+            
+            time.sleep(0.01)
+
     def process_frame(self, frame):
-        self.frame_count += 1
-        current_time = time.time()
-        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
-        if self.frame_count % self.skip_interval != 0 and self.frame_count > 1:
-            # SKIP FRAME: Use cached values
-            raw_detections = self.last_raw_detections
-            threat_score = self.last_threat_score
-            decision = self.last_decision
-            reasons = self.last_reasons
-        else:
-            # PROCESS FRAME
+        """
+        Non-blocking: 
+        1. Pushes frame to inference thread.
+        2. Draws LATEST known results on current frame.
+        3. Returns immediately.
+        """
+        # 1. Push latest frame for inference (if thread is ready)
+        if self.inference_lock.acquire(blocking=False):
+            self.input_frame = frame.copy()
+            self.inference_lock.release()
             
-            # 1. Standard Detections
-            raw_detections = self.detect_objects(frame)
-            
-            # 2. Mask Detections
-            mask_detections = self.detect_masks(frame)
-            raw_detections.extend(mask_detections)
-            
-            threat_score = 0
-            active_threats = [] # List of tuples (Category, Description, Weight)
-            reasons = [] # User facing strings
-            
-            # --- ANALYSIS ---
-
-            # CATEGORY 2: ATM TAMPERING (Camera Level)
-            is_tampered, tamper_reason = self.check_tampering(frame, gray_frame)
-            if is_tampered:
-                threat_score += self.WEIGHTS['TAMPER']
-                active_threats.append(("TAMPER", tamper_reason, self.WEIGHTS['TAMPER']))
-
-            # Object Level Analysis
-            person_count = 0
-            weapons_found = []
-            suspicious_objects = []
-            helmet_detected = False
-            mask_detected = False
-            face_visible = False
-            
-            # Track persons for behavior
-            current_frame_persons = []
-
-            for d in raw_detections:
-                cls = d['cls']
-                box = d['bbox']
-                source = d['source']
-                
-                # Count People (Only from COCO)
-                # STRICTER FILTER: Only count high confidence persons to avoid ghosts
-                if source == 'coco' and cls == self.CLASS_PERSON:
-                    if d['conf'] > 0.60:
-                        person_count += 1
-                        current_frame_persons.append(box)
-                    
-                # Category 1: Weapons
-                if source == 'coco' and cls == self.CLASS_KNIFE:
-                    weapons_found.append(self.model.names[cls])
-                
-                # HELMET REAL
-                if source == 'helmet_model' and cls == 'HELMET_REAL':
-                    helmet_detected = True
-                    
-                # MASK REAL
-                if source == 'mask_model' and cls == 'MASK_REAL':
-                    mask_detected = True
-
-                # FACE VISIBLE
-                if source == 'mask_model' and cls == 'FACE_VISIBLE':
-                    face_visible = True
-                    
-                    
-                # Category 6: Suspicious Objects (Bags)
-                if source == 'coco' and cls in [self.CLASS_BACKPACK, self.CLASS_SUITCASE]:
-                    suspicious_objects.append(self.model.names[cls])
-
-            # --- LOGIC AGGREGATION ---
-
-            # Fallback: If Person detected but No Face, check YOLO Box
-            if person_count > 0 and not face_visible and not mask_detected:
-                 for box in current_frame_persons:
-                      if self.check_face_fallback(frame, np.array(box)):
-                           face_visible = True
-                           break
-
-
-
-
-            # CAT 1: WEAPON (High Severity)
-            if weapons_found:
-                threat_score += self.WEIGHTS['WEAPON']
-                active_threats.append(("WEAPON", f"Weapon(s): {', '.join(weapons_found)}", self.WEIGHTS['WEAPON']))
-
-            # CAT 3: FACE CONCEALMENT (Mask)
-            if mask_detected:
-                 threat_score += self.WEIGHTS['FACE_MASK']
-                 active_threats.append(("FACE", "Face Mask Detected", self.WEIGHTS['FACE_MASK']))
-
-            # --- NEW LOGIC: 2+ MASKED PERSONS FOR > 1 MINUTE ---
-            # Count actual individual mask detections
-            mask_count = sum(1 for d in raw_detections if d['cls'] == 'MASK_REAL')
-            
-            if mask_count >= 2:
-                if self.two_masked_start_time is None:
-                    self.two_masked_start_time = current_time
-                else:
-                    elapsed = current_time - self.two_masked_start_time
-                    if elapsed > 60: # 1 Minute
-                        threat_score = 100 # IMMEDIATE MAX THREAT
-                        active_threats.append(("CRITICAL", "2+ Masked Persons Detected > 1min", 100))
-                        decision = "LOCK"
-            else:
-                self.two_masked_start_time = None
-
-                    
-            # CAT 3: HELMET (Real Model)
-            if helmet_detected:
-                threat_score += self.WEIGHTS['HELMET']
-                active_threats.append(("HELMET", "Rider Helmet Detected", self.WEIGHTS['HELMET']))
-
-            # CAT 5: MULTI-PERSON (Crowd)
-            if person_count > 1:
-                threat_score += self.WEIGHTS['CROWD']
-                active_threats.append(("CROWD", f"Multiple People ({person_count})", self.WEIGHTS['CROWD']))
-                
-                # Simple Proximity Check
-                for i in range(len(current_frame_persons)):
-                    for j in range(i + 1, len(current_frame_persons)):
-                        box1 = current_frame_persons[i]
-                        box2 = current_frame_persons[j]
-                        
-                        xA = max(box1[0], box2[0])
-                        yA = max(box1[1], box2[1])
-                        xB = min(box1[2], box2[2])
-                        yB = min(box1[3], box2[3])
-                        
-                        interArea = max(0, xB - xA) * max(0, yB - yA)
-                        if interArea > 0: 
-                            threat_score += 15 
-                            # Stricter overlap for Violence (was 20000)
-                            if interArea > 40000:
-                                 active_threats.append(("VIOLENCE", "Subjects in Close Conflict", self.WEIGHTS['VIOLENCE']))
-
-            # CAT 6: OBJECTS
-            if suspicious_objects:
-                threat_score += self.WEIGHTS['OBJECT']
-                active_threats.append(("OBJECT", f"Suspicious Item: {suspicious_objects[0]}", self.WEIGHTS['OBJECT']))
-
-            # CAT 7: TIME
-            hour = datetime.now().hour
-            if hour >= 23 or hour < 5:
-                threat_score += self.WEIGHTS['TIME']
-                active_threats.append(("TIME", "Late Night Access", self.WEIGHTS['TIME']))
-                
-                # Late Night + Person = Suspicious
-                # SAFETY: If face is visible, do not apply this penalty
-                if person_count > 0 and not face_visible:
-                    threat_score += 30
-                    active_threats.append(("BEHAVIOR", "Suspicious Late Activity", 30))
-                elif person_count > 0 and face_visible:
-                     active_threats.append(("SAFETY", "Identity Verification: OK", -10))
-                
-            # Final Score Cap
-            threat_score = min(threat_score, 100)
-            
-            # --- DECISION LOGIC ---
-            decision = "NORMAL"
-            if threat_score >= self.THREAT_THRESHOLD_LOCK:
-                decision = "LOCK"
-                # Laptop Siren (High Pitch, Long)
-                try: winsound.Beep(2500, 500) 
-                except: pass
-            elif threat_score >= self.THREAT_THRESHOLD_WARN:
-                decision = "WARN"
-                # Laptop Warning (Lower Pitch, Short)
-                try: winsound.Beep(1000, 200)
-                except: pass
-                
-            # Format reasons for UI
-            reasons = [t[1] for t in active_threats]
-            
-            # Cache results
-            self.last_raw_detections = raw_detections
-            self.last_threat_score = threat_score
-            self.last_decision = decision
-            self.last_reasons = reasons
-        
-        # --- ANNOTATION ---
-        for d in raw_detections:
-            x1, y1, x2, y2 = map(int, d['bbox'])
-            cls = d['cls']
+        # 2. Get latest results
+        with self.results_lock:
+            detections = self.latest_raw_detections
+            score = self.latest_threat_score
+            decision = self.latest_decision
+            reasons = self.latest_reasons
+        # 3. Annotate current frame with latest detections
+        annotated_frame = frame.copy()
+        for d in detections:
+            bbox = [int(x) for x in d['bbox']]
+            cls = str(d['cls'])
             conf = d['conf']
-            source = d['source']
+            color = (0, 255, 0)
+            if 'GUN' in cls or 'KNIFE' in cls: color = (0, 0, 255)
+            elif 'MASK' in cls or 'HELMET' in cls: color = (0, 165, 255)
             
-            color = (0, 255, 0) # Green normal
-            label_text = ""
+            cv2.rectangle(annotated_frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
+            cv2.putText(annotated_frame, f"{cls} {conf:.2f}", (bbox[0], bbox[1]-10), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
             
-            # Filter Visualization: Only draw Threats or Persons
-            should_draw = False
-            color = (0, 255, 0) # Default Green
-            label_text = ""
-            
-            if source == 'coco':
-                # Only draw Person, Weapons, Bags
-                if cls in [self.CLASS_PERSON, self.CLASS_BACKPACK, self.CLASS_HANDBAG, self.CLASS_SUITCASE]:
-                    should_draw = True
-                    label_text = f"{self.model.names[cls]} {conf:.2f}"
-                elif cls == self.CLASS_KNIFE:
-                    should_draw = True
-                    label_text = f"{self.model.names[cls]} {conf:.2f}"
-                    color = (0, 0, 255) # Red for weapon
-
-            elif source in ['helmet_model', 'mask_model', 'gun_model', 'cap_model']:
-                should_draw = True # Always draw custom model detections
-                if source == 'helmet_model':
-                    label_text = f"HELMET {conf:.2f}"
-                    if cls == 'HELMET_REAL': color = (0, 0, 255)
-                elif source == 'mask_model':
-                    label_text = f"MASK {conf:.2f}"
-                    color = (0, 0, 255)
-                elif source == 'gun_model':
-                    label_text = f"GUN {conf:.2f}"
-                    color = (0, 0, 255)
-                elif source == 'cap_model':
-                    label_text = f"CAP {conf:.2f}"
-                    color = (0, 165, 255)
-
-            if should_draw:
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(frame, label_text, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            
-        # Overlay Status
+        # UI Status
         status_color = (0, 255, 0)
-        if decision == "WARN": 
-            status_color = (0, 255, 255) # Yellow
-            try: winsound.Beep(1000, 200) # Short warning beep
-            except: pass
-        if decision == "LOCK": 
-            status_color = (0, 0, 255) # Red
-            try: winsound.Beep(2500, 500) # Long alarm beep
-            except: pass
+        if decision == "WARN": status_color = (0, 255, 255)
+        if decision == "LOCK": status_color = (0, 0, 255)
         
-        cv2.putText(frame, f"STATUS: {decision} ({threat_score}%)", (20, 40), 
+        cv2.putText(annotated_frame, f"STATUS: {decision} ({score}%)", (20, 50), 
                     cv2.FONT_HERSHEY_SIMPLEX, 1, status_color, 2)
         
-        y_offset = 80
-        for reason in reasons:
-            cv2.putText(frame, f"- {reason}", (20, y_offset), 
+        y_off = 90
+        for r in reasons:
+            cv2.putText(annotated_frame, f"- {r}", (20, y_off), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-            y_offset += 25
-
-        return frame, threat_score, decision, reasons
+            y_off += 25
+            
+        return annotated_frame, score, decision, reasons

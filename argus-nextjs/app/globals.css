@@ -5,13 +5,19 @@
 /* Background (relatable security/ATM vibe) */
 body {
   margin: 0;
-  font-family: Arial, sans-serif;
+  font-family: 'Inter', sans-serif;
   color: #fff;
-  background: linear-gradient(180deg, rgba(8, 10, 18, 0.92), rgba(8, 10, 18, 0.92)),
-    url("https://images.unsplash.com/photo-1556740749-887f6717d7e4?auto=format&fit=crop&w=1600&q=70");
-  background-size: cover;
-  background-position: center;
+  background: radial-gradient(circle at top right, #111827, #000000);
   background-attachment: fixed;
+  overflow-x: hidden;
+}
+
+/* Glassmorphism utility */
+.glass {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
 /* Topbar */
@@ -272,11 +278,14 @@ body {
 
 .camBtn:hover {
   background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.05);
 }
 
 .camBtn.active {
-  border-color: rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.06);
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.2), rgba(6, 182, 212, 0.1));
+  border-color: rgba(6, 182, 212, 0.4);
+  box-shadow: 0 0 20px rgba(6, 182, 212, 0.15);
 }
 
 .camTitle {

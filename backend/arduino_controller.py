@@ -10,13 +10,32 @@ class ArduinoController:
         self.logger = logging.getLogger("Arduino")
 
     def connect(self):
+        # Try the specified port first
+        if self._try_port(self.port):
+            return True
+        
+        # If default fails, scan for available ports
+        import serial.tools.list_ports
+        ports = list(serial.tools.list_ports.comports())
+        self.logger.info(f"Scanning {len(ports)} ports for Arduino...")
+        
+        for p in ports:
+            if p.device == self.port: continue # Already tried
+            if self._try_port(p.device):
+                self.port = p.device
+                return True
+                
+        return False
+
+    def _try_port(self, port_name):
         try:
-            self.serial_conn = serial.Serial(self.port, self.baud_rate, timeout=1)
+            self.logger.info(f"Attempting to connect on {port_name}...")
+            self.serial_conn = serial.Serial(port_name, self.baud_rate, timeout=1)
             time.sleep(2)  # Wait for Arduino to reset
-            self.logger.info(f"Connected to Arduino on {self.port}")
+            self.logger.info(f"[SUCCESS] Connected to Arduino on {port_name}")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to connect to Arduino: {e}")
+            self.logger.debug(f"Port {port_name} failed: {e}")
             return False
 
     def send_command(self, command):
